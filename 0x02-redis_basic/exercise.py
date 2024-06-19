@@ -5,24 +5,22 @@ Cache module for storing and retrieving data in Redis.
 
 import redis
 import uuid
-from typing import Union, Callable, Optional
-import functools
+from typing import Callable
 
 
-def count_calls(method: Callable) -> Callable:
+def call_history(method: Callable) -> Callable:
     """
-    Decorator that counts the number of times a method is called.
+    Decorator that logs the input parameters and output values of a method into Redis lists.
 
     Args:
         method (Callable): The method to be wrapped by the decorator.
 
     Returns:
-        Callable: The wrapped method with counting functionality.
+        Callable: The wrapped method with logging functionality.
     """
-    @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         """
-        Wrapper function to count the number of calls to the method.
+        Wrapper function to log input parameters and output values into Redis lists.
 
         Args:
             self: The instance of the class.
@@ -32,9 +30,20 @@ def count_calls(method: Callable) -> Callable:
         Returns:
             The return value of the original method.
         """
-        key = method.__qualname__
-        self._redis.incr(key)
-        return method(self, *args, **kwargs)
+        input_key = "{}:inputs".format(method.__qualname__)
+        output_key = "{}:outputs".format(method.__qualname__)
+
+        # Log input arguments
+        self._redis.rpush(input_key, str(args))
+
+        # Execute the original method
+        result = method(self, *args, **kwargs)
+
+        # Log output value
+        self._redis.rpush(output_key, result)
+
+        return result
+
     return wrapper
 
 
@@ -57,13 +66,13 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
-    @count_calls
-    def store(self, data: Union[str, bytes, int, float]) -> str:
+    @call_history
+    def store(self, data: str) -> str:
         """
         Store data in Redis using a randomly generated key.
 
         Args:
-            data (Union[str, bytes, int, float]): The data to store in Redis.
+            data (str): The data to store in Redis.
 
         Returns:
             str: The generated key under which the data is stored.
@@ -72,58 +81,44 @@ class Cache:
         self._redis.set(key, data)
         return key
 
-    def get(self, key: str, fn: Optional[Callable] = None) -> Union[str, bytes, int, float, None]:
+    def get(self, key: str) -> str:
         """
-        Retrieve data from Redis using the given key and an optional
-        conversion function.
+        Retrieve data from Redis using the given key.
 
         Args:
             key (str): The key to retrieve the data from Redis.
-            fn (Optional[Callable]): A callable function to convert the data.
 
         Returns:
-            Union[str, bytes, int, float, None]: The retrieved data, possibly
-            converted using the provided function.
+            str: The retrieved data.
         """
-        data = self._redis.get(key)
-        if data is None:
-            return None
-        if fn:
-            return fn(data)
-        return data
+        return self._redis.get(key)
 
-    def get_str(self, key: str) -> Union[str, None]:
+    def get_list(self, key: str) -> list:
         """
-        Retrieve a string from Redis using the given key.
+        Retrieve a list from Redis using the given key.
 
         Args:
-            key (str): The key to retrieve the string from Redis.
+            key (str): The key to retrieve the list from Redis.
 
         Returns:
-            Union[str, None]: The retrieved string, or None if the key does not exist.
+            list: The retrieved list.
         """
-        return self.get(key, lambda d: d.decode("utf-8"))
-
-    def get_int(self, key: str) -> Union[int, None]:
-        """
-        Retrieve an integer from Redis using the given key.
-
-        Args:
-            key (str): The key to retrieve the integer from Redis.
-
-        Returns:
-            Union[int, None]: The retrieved integer, or None if the key does not exist.
-        """
-        return self.get(key, lambda d: int(d))
+        return self._redis.lrange(key, 0, -1)
 
 
 if __name__ == "__main__":
     cache = Cache()
 
-    cache.store(b"first")
-    print(cache.get(cache.store.__qualname__))
+    s1 = cache.store("first")
+    print(s1)
+    s2 = cache.store("second")
+    print(s2)
+    s3 = cache.store("third")
+    print(s3)
 
-    cache.store(b"second")
-    cache.store(b"third")
-    print(cache.get(cache.store.__qualname__))
+    inputs = cache.get_list("{}:inputs".format(cache.store.__qualname__))
+    outputs = cache.get_list("{}:outputs".format(cache.store.__qualname__))
+
+    print("inputs:", inputs)
+    print("outputs:", outputs)
 
