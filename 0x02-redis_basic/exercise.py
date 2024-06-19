@@ -106,19 +106,33 @@ class Cache:
         return self._redis.lrange(key, 0, -1)
 
 
+def replay(method: Callable):
+    """
+    Function to display the history of calls for a particular method.
+
+    Args:
+        method (Callable): The method for which to display the history.
+    """
+    method_name = method.__qualname__
+    inputs_key = "{}:inputs".format(method_name)
+    outputs_key = "{}:outputs".format(method_name)
+
+    inputs = cache.get_list(inputs_key)
+    outputs = cache.get_list(outputs_key)
+
+    print(f"{method_name} was called {len(inputs)} times:")
+
+    for args, result in zip(inputs, outputs):
+        args_str = args.decode('utf-8')
+        print(f"{method_name}(*{args_str}) -> {result.decode('utf-8')}")
+
+
 if __name__ == "__main__":
     cache = Cache()
 
-    s1 = cache.store("first")
-    print(s1)
-    s2 = cache.store("second")
-    print(s2)
-    s3 = cache.store("third")
-    print(s3)
+    cache.store("foo")
+    cache.store("bar")
+    cache.store(42)
 
-    inputs = cache.get_list("{}:inputs".format(cache.store.__qualname__))
-    outputs = cache.get_list("{}:outputs".format(cache.store.__qualname__))
-
-    print("inputs:", inputs)
-    print("outputs:", outputs)
+    replay(cache.store)
 
