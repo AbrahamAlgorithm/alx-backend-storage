@@ -1,0 +1,2 @@
+//regx filter
+db.getCollection('school').find({ "name": { $regex: /^Holberton/ } }).forEach(printjson)
